@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "763760280606",
+    "project_id": "ethioshop-2253",
+    "storage_bucket": "ethioshop-2253.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:763760280606:android:110148aec8d5f99c6e5a0f",
+        "android_client_info": {
+          "package_name": "com.ethio.shop"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDGSK59SdpDF_1UoyfHMnCAAZjPA2H7R44"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
