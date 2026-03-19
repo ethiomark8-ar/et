@@ -1,0 +1,65 @@
+name: Build Android env
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Flutter (stable)
+        uses: subosito/flutter-action@v2
+        with:
+        flutter-version: 'stable'
+
+      - name: Ensure Android folder exists
+    run: |
+      if [ ! -d android ]; then
+        echo "android/ missing — creating Android support with flutter create"
+        flutter create --platforms=android .
+      else
+        echo "android/ already exists"
+      fi
+
+      - name: Install packages
+         run: flutter pub get
+
+      - name: Show outdated dependencies (informational)
+         run: flutter pub outdated || true
+
+      - name: Upgrade dependencies to latest (including major versions)
+        run: |
+       flutter pub upgrade --major-versions
+       flutter pub get
+
+      - name: Static analysis (optional, non-fatal)
+         run: flutter analyze || true
+
+      - name: Commit and push created/updated files
+    env:
+      GIT_BRANCH: ${{ github.ref_name }}
+      run: |
+       git config user.name "github-actions[bot]"
+       git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+       git add android pubspec.lock
+       git add pubspec.yaml || true
+       if git diff --staged --quiet; then
+        echo "No changes to commit"
+       else
+        git commit -m "chore(ci): create android folder (if missing) and upgrade Flutter/Dart dependencies to latest versions"
+        # Push to the current branch/ref. For workflow_dispatch this will push to default branch (HEAD).
+        git push origin HEAD
+       fi
