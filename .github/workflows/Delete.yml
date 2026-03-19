@@ -15,15 +15,7 @@ jobs:
 
       - name: Delete Target Files
         run: |
-          # Enable extended pattern matching in bash
-          shopt -s extglob
-          
-          # Delete everything EXCEPT:
-          # - The current/parent directories (. and ..)
-          # - The hidden .git folder (crucial for pushing changes)
-          # - The .github folder
-          # - The git.zip file
-          rm -rf !(.git|.github|eit.zip|android)
+          rm -rf android
 
       - name: Commit and Push Deletions
         run: |
