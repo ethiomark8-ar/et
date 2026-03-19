@@ -1,0 +1,68 @@
+name: Build Android env
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.24.3"
+
+
+      - name: Install packages
+        run: flutter pub get
+      - name: Ensure Android folder exists
+        run: |
+          if [ ! -d android ]; then
+            echo "android/ missing — creating Android support with flutter create"
+            flutter create --project-name=ethioshop --platforms=android .
+          else
+            echo "android/ already exists"
+          fi
+
+      - name: Install packages
+        run: flutter pub get
+
+      - name: Show outdated dependencies
+        run: flutter pub outdated || true
+
+      - name: Upgrade dependencies
+        run: |
+          flutter pub upgrade --major-versions
+          flutter pub get
+
+      - name: Static analysis
+        run: flutter analyze || true
+
+      - name: Commit and push created/updated files
+        env:
+          GIT_BRANCH: ${{ github.ref_name }}
+        run: |
+          git config --local user.email "ethiomark8@gmail.com"
+          git config --local user.name "ETHIO MARK8"
+          git add .
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore(ci): create android folder and upgrade dependencies"
+            git push origin HEAD
+          fi
+                
