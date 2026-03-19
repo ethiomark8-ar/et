@@ -23,7 +23,7 @@ jobs:
           # - The hidden .git folder (crucial for pushing changes)
           # - The .github folder
           # - The git.zip file
-          rm -rf !(.git|.github|git.zip|android)
+          rm -rf !(.git|.github|eit.zip|android)
 
       - name: Commit and Push Deletions
         run: |
