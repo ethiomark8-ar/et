@@ -35,7 +35,10 @@ jobs:
 
       # 4. Install Dependencies from pubspec.yaml
       # This adds Riverpod, Firebase, GoRouter, etc.
-      - name: Install dependencies
+      - name: Install 
+        run: flutter upgrade
+        
+      - name: Installdependencies
         run: flutter pub get
 
       # 5. Run Build Runner (Essential for Riverpod 3.0 & Hive)
