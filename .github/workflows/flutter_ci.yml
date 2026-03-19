@@ -1,0 +1,72 @@
+name: Flutter CI/CD
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build_android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: ⬇️ Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🐦 Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          
+      - name: 📦 Install Dependencies
+        run: flutter pub get
+        
+      # --- START FIREBASE DEPLOYMENT SETUP ---
+      
+      - name: 🔑 Decode google-services.json file
+        # This step uses the base64 secret to recreate the file needed for the build
+        run: |
+          echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 -d > android/app/google-services.json
+          
+      - name: ☕ Set up JDK 17 (Required for Android Build)
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+          
+      # --- END FIREBASE DEPLOYMENT SETUP ---
+
+      - name: 🔎 Analyze & Test
+        run: |
+          flutter analyze
+          flutter test
+        
+      - name: 🏗️ Build Android App Bundle (AAB)
+        # The build process now uses the decoded google-services.json
+        run: flutter build appbundle --release
+        
+      # --- START DEPLOYMENT TO FIREBASE APP DISTRIBUTION ---
+
+      - name: ⚙️ Install Firebase CLI
+        run: npm install -g firebase-tools
+        
+      - name: ⬆️ Deploy to Firebase App Distribution
+        run: |
+          # Finds the generated AAB file path
+          AAB_FILE=$(find build/app/outputs/bundle/release/ -name "*.aab" | head -n 1)
+          
+          # Distribute the file
+          firebase appdistribution:distribute "$AAB_FILE" \
+            --app 1:672418288153:android:f6f631486c9748a883d088 \
+            --release-notes "CI Build ${{ github.sha }}" \
+            --groups "testers" \
+            --token ${{ secrets.FIREBASE_TOKEN }}
+        env:
+          # Sets environment variable for Firebase CLI
+          FIREBASE_CLI_EXPERIMENTAL: true
+          
+      # --- END DEPLOYMENT TO FIREBASE APP DISTRIBUTION ---
+      
+      - name: ✅ Final Status
+        run: echo "Build, Test, and Deployment to Firebase completed successfully."

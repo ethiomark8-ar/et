@@ -1,0 +1,120 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: ethio-marketplace-db
+    environment:
+      POSTGRES_DB: ethio_marketplace
+      POSTGRES_USER: marketplace_user
+      POSTGRES_PASSWORD: marketplace_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marketplace_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - marketplace-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: ethio-marketplace-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - marketplace-network
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: ../docker/backend.Dockerfile
+    container_name: ethio-marketplace-api
+    ports:
+      - "8080:8080"
+    environment:
+      NODE_ENV: development
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ethio_marketplace
+      DB_USER: marketplace_user
+      DB_PASSWORD: marketplace_password
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: dev_jwt_secret_123
+      API_URL: http://localhost:8080
+      CLIENT_URL: http://localhost:3000
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - marketplace-network
+    restart: unless-stopped
+
+  admin:
+    build:
+      context: ./admin-dashboard
+      dockerfile: ../docker/admin.Dockerfile
+    container_name: ethio-marketplace-admin
+    ports:
+      - "3000:3000"
+    environment:
+      REACT_APP_API_URL: http://api:8080/api
+      REACT_APP_WS_URL: ws://api:8080
+    volumes:
+      - ./admin-dashboard:/app
+      - /app/node_modules
+    depends_on:
+      - api
+    networks:
+      - marketplace-network
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: ethio-marketplace-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@marketplace.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - marketplace-network
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: ethio-marketplace-redis-commander
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+    networks:
+      - marketplace-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  marketplace-network:
+    driver: bridge

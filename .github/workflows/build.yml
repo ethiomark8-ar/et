@@ -1,0 +1,137 @@
+name: EthioShop Flutter Build
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type (debug or release)'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+
+env:
+  FLUTTER_VERSION: '3.24.0'
+  JAVA_VERSION: '17'
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: 'gradle'
+          
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+          cache-key: flutter-${{ env.FLUTTER_VERSION }}-${{ hashFiles('**/pubspec.lock') }}
+          
+      - name: Verify Flutter Installation
+        run: |
+          flutter --version
+          flutter doctor -v
+          
+      - name: Get Dependencies
+        run: flutter pub get
+        
+      - name: Analyze Code
+        run: flutter analyze
+        
+      - name: Run Tests
+        run: flutter test --coverage
+        
+      - name: Build Debug APK
+        if: github.event.inputs.build_type == 'debug' || github.event.inputs.build_type == ''
+        run: flutter build apk --debug
+        
+      - name: Build Release APK
+        if: github.event.inputs.build_type == 'release'
+        run: flutter build apk --release
+        
+      - name: Build App Bundle (Release)
+        if: github.event.inputs.build_type == 'release'
+        run: flutter build appbundle --release
+        
+      - name: Upload Debug APK Artifact
+        if: github.event.inputs.build_type == 'debug' || github.event.inputs.build_type == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ethioshop-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 30
+          
+      - name: Upload Release APK Artifact
+        if: github.event.inputs.build_type == 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ethioshop-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 90
+          
+      - name: Upload App Bundle Artifact
+        if: github.event.inputs.build_type == 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ethioshop-release-aab
+          path: build/app/outputs/bundle/release/app-release.aab
+          retention-days: 90
+
+  build-release-on-tag:
+    name: Build Release APK on Tag
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: 'gradle'
+          
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+          
+      - name: Get Dependencies
+        run: flutter pub get
+        
+      - name: Build Release APK
+        run: flutter build apk --release --build-name=${{ github.ref_name }}
+        
+      - name: Build App Bundle
+        run: flutter build appbundle --release --build-name=${{ github.ref_name }}
+        
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/bundle/release/app-release.aab
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

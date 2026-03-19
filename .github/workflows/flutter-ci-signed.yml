@@ -1,0 +1,82 @@
+# GitHub Actions workflow: run tests, build a release APK, and upload the APK as an artifact.
+# - Produces an APK artifact on pushes/PRs to ethio_market_app.
+# - Optionally decodes and uses a signed keystore from repo secrets (recommended).
+#
+# Place this file at: .github/workflows/flutter-ci-signed.yml
+name: Flutter CI — Tests & APK
+
+on:
+  push:
+    branches: [ ethio_market_app ]
+  pull_request:
+    branches: [ ethio_market_app ]
+
+jobs:
+  test_and_build:
+    name: Test, Build APK, Upload artifact
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Java (required for Android build)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 'stable'
+
+      - name: Cache Pub packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
+
+      - name: Install Flutter deps
+        run: flutter pub get
+
+      - name: Run unit & widget tests
+        run: flutter test --coverage
+
+      # Optional: restore keystore from secret and create android/key.properties for Gradle signing
+      # Secrets required if you want a signed APK:
+      #  - KEYSTORE_BASE64 (base64-encoded keystore file contents)
+      #  - KEYSTORE_PASSWORD
+      #  - KEY_PASSWORD
+      #  - KEY_ALIAS
+      - name: Restore keystore and create key.properties (if KEYSTORE_BASE64 set)
+        if: ${{ secrets.KEYSTORE_BASE64 != '' && secrets.KEYSTORE_BASE64 != null }}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          mkdir -p android/app
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/ethio-release.jks
+          cat > android/key.properties <<EOF
+          storePassword=${KEYSTORE_PASSWORD}
+          keyPassword=${KEY_PASSWORD}
+          keyAlias=${KEY_ALIAS}
+          storeFile=app/ethio-release.jks
+          EOF
+          ls -l android/app/ethio-release.jks
+          echo "Created android/key.properties (not committed)"
+
+      - name: Build release APK
+        # If android/build.gradle uses android/key.properties for signing, and keystore was created above,
+        # the APK produced will be signed. Otherwise it will be unsigned.
+        run: flutter build apk --release --no-shrink
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ethio-apk
+          path: build/app/outputs/flutter-apk/app-release.apk

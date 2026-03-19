@@ -1,0 +1,157 @@
+name: EthioShop CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.16.0'
+        channel: 'stable'
+        cache: true
+
+    - name: Install dependencies
+      run: flutter pub get
+
+    - name: Verify Flutter installation
+      run: flutter doctor -v
+
+    - name: Analyze code
+      run: flutter analyze
+
+    - name: Run tests
+      run: flutter test --coverage
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        files: coverage/lcov.info
+
+  build-android:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Java
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Set up Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.16.0'
+        channel: 'stable'
+        cache: true
+
+    - name: Install dependencies
+      run: flutter pub get
+
+    - name: Build APK
+      run: flutter build apk --release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: ethioshop-apk
+        path: build/app/outputs/flutter-apk/app-release.apk
+
+    - name: Build App Bundle
+      run: flutter build appbundle --release
+
+    - name: Upload App Bundle artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: ethioshop-aab
+        path: build/app/outputs/bundle/release/app-release.aab
+
+  firebase-deploy:
+    runs-on: ubuntu-latest
+    needs: build-android
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Install Firebase CLI
+      run: |
+        curl -sL https://firebase.tools | bash
+        echo "$HOME/.firebase/bin" >> $GITHUB_PATH
+
+    - name: Deploy to Firebase Hosting
+      run: firebase deploy --only hosting
+      env:
+        FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+
+    - name: Deploy Cloud Functions
+      run: firebase deploy --only functions
+      env:
+        FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+
+  firebase-app-distribution:
+    runs-on: ubuntu-latest
+    needs: build-android
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Download APK artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: ethioshop-apk
+        path: ./apk
+
+    - name: Upload to Firebase App Distribution
+      uses: wzieba/Firebase-Distribution-Github-Action@v1
+      with:
+        appId: ${{ secrets.FIREBASE_APP_ID }}
+        serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_CREDENTIALS }}
+        groups: testers
+        file: ./apk/app-release.apk
+        releaseNotes: |
+          Release ${{ github.sha }}
+          - Latest changes and improvements
+          - Bug fixes and performance enhancements
+
+  crashlytics:
+    runs-on: ubuntu-latest
+    needs: build-android
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Download App Bundle artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: ethioshop-aab
+        path: ./aab
+
+    - name: Upload to Firebase Crashlytics
+      uses: wzieba/Firebase-Distribution-Github-Action@v1
+      with:
+        appId: ${{ secrets.FIREBASE_APP_ID }}
+        serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_CREDENTIALS }}
+        groups: internal
+        file: ./aab/app-release.aab

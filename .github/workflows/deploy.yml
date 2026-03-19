@@ -1,0 +1,183 @@
+name: Deploy to GCP
+
+on:
+  push:
+    branches: [ main, staging ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: europe-west1
+  SERVICE_NAME: ethio-marketplace-api
+  DB_INSTANCE: ethio-marketplace-db
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: testpassword
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+    
+    - name: Install Backend Dependencies
+      run: |
+        cd backend
+        npm ci
+    
+    - name: Run Backend Tests
+      run: |
+        cd backend
+        npm test
+      env:
+        NODE_ENV: test
+        DB_HOST: localhost
+        DB_PORT: 5432
+        DB_NAME: test_db
+        DB_USER: postgres
+        DB_PASSWORD: testpassword
+        JWT_SECRET: test-secret-key
+        REDIS_HOST: localhost
+        REDIS_PORT: 6379
+    
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.13.0'
+    
+    - name: Install Flutter Dependencies
+      run: |
+        cd mobile
+        flutter pub get
+    
+    - name: Run Flutter Tests
+      run: |
+        cd mobile
+        flutter test
+
+  deploy-staging:
+    needs: test
+    if: github.ref == 'refs/heads/staging'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v1
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+    
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v1
+    
+    - name: Configure Docker
+      run: |
+        gcloud auth configure-docker gcr.io
+    
+    - name: Build and Push Docker Image
+      run: |
+        docker build -t gcr.io/$PROJECT_ID/$SERVICE_NAME:staging-${{ github.sha }} -f docker/backend.Dockerfile .
+        docker push gcr.io/$PROJECT_ID/$SERVICE_NAME:staging-${{ github.sha }}
+    
+    - name: Deploy to Cloud Run
+      run: |
+        gcloud run deploy $SERVICE_NAME \
+          --image gcr.io/$PROJECT_ID/$SERVICE_NAME:staging-${{ github.sha }} \
+          --platform managed \
+          --region $REGION \
+          --allow-unauthenticated \
+          --update-secrets=DB_PASSWORD=db-password:latest,JWT_SECRET=jwt-secret:latest \
+          --set-env-vars="NODE_ENV=staging,DB_HOST=$(gcloud sql instances describe $DB_INSTANCE --format='value(ipAddresses[0].ipAddress)')"
+    
+    - name: Run Database Migrations
+      run: |
+        # Run migrations using the deployed service
+        SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region $REGION --format='value(status.url)')
+        curl -X POST $SERVICE_URL/api/admin/migrate \
+          -H "Authorization: Bearer ${{ secrets.ADMIN_TOKEN }}"
+
+  deploy-production:
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v1
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+    
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v1
+    
+    - name: Configure Docker
+      run: |
+        gcloud auth configure-docker gcr.io
+    
+    - name: Build and Push Docker Image
+      run: |
+        docker build -t gcr.io/$PROJECT_ID/$SERVICE_NAME:prod-${{ github.sha }} -f docker/backend.Dockerfile .
+        docker push gcr.io/$PROJECT_ID/$SERVICE_NAME:prod-${{ github.sha }}
+    
+    - name: Deploy to Cloud Run
+      run: |
+        gcloud run deploy $SERVICE_NAME \
+          --image gcr.io/$PROJECT_ID/$SERVICE_NAME:prod-${{ github.sha }} \
+          --platform managed \
+          --region $REGION \
+          --allow-unauthenticated \
+          --update-secrets=DB_PASSWORD=db-password:latest,JWT_SECRET=jwt-secret:latest \
+          --set-env-vars="NODE_ENV=production,DB_HOST=$(gcloud sql instances describe $DB_INSTANCE --format='value(ipAddresses[0].ipAddress)')"
+    
+    - name: Run Database Migrations
+      run: |
+        SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region $REGION --format='value(status.url)')
+        curl -X POST $SERVICE_URL/api/admin/migrate \
+          -H "Authorization: Bearer ${{ secrets.ADMIN_TOKEN }}"
+    
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ github.run_number }}
+        name: Release v${{ github.run_number }}
+        body: |
+          Production deployment completed successfully.
+          
+          **Changes:**
+          - ${{ github.event.head_commit.message }}
+          
+          **Deployment Info:**
+          - Image: gcr.io/$PROJECT_ID/$SERVICE_NAME:prod-${{ github.sha }}
+          - Service URL: $(gcloud run services describe $SERVICE_NAME --region $REGION --format='value(status.url)')
+        draft: false
+        prerelease: false
