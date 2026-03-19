@@ -1,0 +1,57 @@
+name: EthioShop CI/CD
+
+on:
+  push:
+    branches: [ "main", "master", "develop" ]
+  pull_request:
+    branches: [ "main", "master", "develop" ]
+
+jobs:
+  build:
+    # Use the latest Ubuntu runner
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Pull your code from the repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Set up Java 17 (Required for modern Android/Gradle builds)
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle' # Automatically caches Gradle dependencies
+
+      # 3. Set up Flutter 3.41.x
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          # Matches the '>=3.11.0' SDK requirement in your new pubspec
+          flutter-version: '3.41.5' 
+          cache: true # Caches the Flutter SDK and Pub packages
+
+      # 4. Install Dependencies from pubspec.yaml
+      # This adds Riverpod, Firebase, GoRouter, etc.
+      - name: Install dependencies
+        run: flutter pub get
+
+      # 5. Run Build Runner (Essential for Riverpod 3.0 & Hive)
+      # This generates the necessary .g.dart files for your state and storage
+      - name: Generate code (Riverpod/Hive)
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      # 6. Quality Checks (Optional but recommended)
+      - name: Analyze project
+        run: flutter analyze
+
+      # 7. Run Unit & Widget Tests
+      - name: Run tests
+        run: flutter test
+
+      # 8. Build Debug APK
+      # Ensures that the project successfully compiles for Android
+      - name: Build Android APK
+        run: flutter build apk --debug
