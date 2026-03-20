@@ -36,7 +36,7 @@ jobs:
       # 4. Install Dependencies from pubspec.yaml
       # This adds Riverpod, Firebase, GoRouter, etc.
       - name: Flutter Doctor
-        run: flutter doctor -v 
+        run: flutter upgrade
         
         
       - name: Installdependencies
