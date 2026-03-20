@@ -30,13 +30,14 @@ jobs:
         with:
           channel: 'stable'
           # Matches the '>=3.11.0' SDK requirement in your new pubspec
-          flutter-version: '3.41.5' 
+          #flutter-version: '3.41.5' 
           cache: true # Caches the Flutter SDK and Pub packages
 
       # 4. Install Dependencies from pubspec.yaml
       # This adds Riverpod, Firebase, GoRouter, etc.
-      - name: Install 
-        run: flutter upgrade
+      - name: Flutter Doctor
+        run: flutter doctor -v 
+        
         
       - name: Installdependencies
         run: flutter pub get
